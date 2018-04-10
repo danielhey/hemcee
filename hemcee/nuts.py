@@ -329,9 +329,9 @@ class NoUTurnSampler(object):
                  random=None):
         chain = np.empty((n_mcmc, len(initial_q)), dtype=float)
         log_prob_chain = np.empty(n_mcmc, dtype=float)
-        for n, (q, lp) in self.sample(initial_q, n_mcmc,
-                                      initial_log_prob=initial_log_prob,
-                                      random=random):
+        for n, (q, lp) in enumerate(self.sample(
+                initial_q, n_mcmc, initial_log_prob=initial_log_prob,
+                random=random)):
             chain[n] = q
             log_prob_chain[n] = q
         return chain, log_prob_chain
