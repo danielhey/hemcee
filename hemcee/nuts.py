@@ -194,7 +194,7 @@ class NoUTurnSampler(object):
 
     def sample(self, initial_q, n_sample, initial_log_prob=None,
                tune=False, tune_step_size=False, tune_metric=False,
-               random=None, title=None):
+               random=None, title=None, top_pbar=None):
         if random is None:
             random = np.random
         if title is None:
@@ -227,7 +227,8 @@ class NoUTurnSampler(object):
         accept_stat = 0
 
         # Do the sampling
-        with tqdm(range(n_sample), total=n_sample) as pbar:
+        leave = top_pbar is None
+        with tqdm(range(n_sample), total=n_sample, leave=leave) as pbar:
             for n in pbar:
                 # Sample the step size including jitter
                 step = self.step_size.sample_step_size(random=random)
@@ -251,6 +252,10 @@ class NoUTurnSampler(object):
                 pbar.set_description(
                     title + "step_size: {0:.1e}; mean(accept_stat): {1:.3f}"
                     .format(step, accept_stat/(n+1)))
+
+                # Update the top level progress bar
+                if top_pbar is not None:
+                    top_pbar.update(1)
 
                 # Yield the current state
                 yield q, log_prob
@@ -295,11 +300,16 @@ class NoUTurnSampler(object):
         # Run a first pass where only the step size is tuned
         q = initial_q
         log_prob = initial_log_prob
+
+        # with tqdm(range(n_warmup), total=n_warmup) as pbar:
+        # pbar.set_description("warm up: ")
+        pbar = None
         if initial_buffer > 0:
             for q, log_prob in self.sample(q, initial_buffer,
                                            initial_log_prob=log_prob,
                                            tune_step_size=tune_step_size,
                                            random=random,
+                                           top_pbar=pbar,
                                            title="initial warm up: "):
                 pass
 
@@ -310,6 +320,7 @@ class NoUTurnSampler(object):
                                            tune_step_size=tune_step_size,
                                            tune_metric=tune_metric,
                                            random=random,
+                                           top_pbar=pbar,
                                            title="warm up {0}/{1}: "
                                            .format(n+1, len(windows))):
                 pass
@@ -320,6 +331,7 @@ class NoUTurnSampler(object):
                                            initial_log_prob=log_prob,
                                            tune_step_size=tune_step_size,
                                            random=random,
+                                           top_pbar=pbar,
                                            title="final warm up: "):
                 pass
 
@@ -333,69 +345,5 @@ class NoUTurnSampler(object):
                 initial_q, n_mcmc, initial_log_prob=initial_log_prob,
                 random=random)):
             chain[n] = q
-            log_prob_chain[n] = q
+            log_prob_chain[n] = lp
         return chain, log_prob_chain
-
-
-# def simple_nuts(log_prob_fn, grad_log_prob_fn, q, nsample, epsilon,
-#                 metric=None, max_depth=5, max_delta_h=1000.0,
-#                 tune=False, tune_step_size=False, tune_metric=False,
-#                 initial_buffer=100, final_buffer=100, window=25,
-#                 nwarmup=None):
-#     if metric is None:
-#         metric = IdentityMetric(len(q))
-#     try:
-#         epsilon.sample_step_size()
-#     except AttributeError:
-#         epsilon = ConstantStepSize(epsilon)
-
-#     if nwarmup is None:
-#         nwarmup = int(0.5 * nsample)
-#     assert nwarmup <= nsample
-
-#     samples = np.empty((nsample, len(q)))
-#     samples_lp = np.empty(nsample)
-#     log_prob = log_prob_fn(q)
-#     acc_count = 0
-#     pbar = tqdm(range(nsample), total=nsample)
-
-#     inner_window = nwarmup - initial_buffer - final_buffer
-#     windows = window * 2 ** np.arange(np.ceil(np.log2(inner_window)
-#                                               - np.log2(window)) + 1)
-#     if windows[-1] > inner_window:
-#         windows = np.append(windows[:-2], inner_window)
-#     windows += initial_buffer
-#     windows = set(windows.astype(int))
-
-#     for n in pbar:
-#         step = epsilon.sample_step_size()
-#         q, log_prob, accept = step_nuts(log_prob_fn, grad_log_prob_fn,
-#                                         metric, q, log_prob, step,
-#                                         max_depth, max_delta_h)
-#         pbar.set_description("{0:.1e}, {1:.3f}".format(step, acc_count/(n+1)))
-
-#         if n < nwarmup:
-#             if tune or tune_step_size:
-#                 epsilon.update(accept)
-#             if n >= initial_buffer and (tune or tune_metric):
-#                 metric.update(q)
-#                 if (n+1) in windows:
-#                     print(n+1, "updating metric")
-#                     metric.finalize()
-#                     if tune or tune_step_size:
-#                         epsilon.restart()
-#                     print(epsilon.get_step_size(), epsilon.sample_step_size())
-
-#         if n == nwarmup - 1 and (tune or tune_step_size):
-#             epsilon.finalize()
-
-#         acc_count += accept
-#         samples[n] = q
-#         samples_lp[n] = log_prob
-
-#     if tune or tune_step_size:
-#         epsilon.finalize()
-#     if tune or tune_metric:
-#         metric.finalize()
-
-#     return samples, samples_lp, acc_count / float(nsample), metric, epsilon
