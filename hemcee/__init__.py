@@ -25,9 +25,9 @@ except NameError:
 
 if not __HEMCEE_SETUP__:
     __all__ = [
-        "step_size", "metric",
+        "step_size", "metric", "autocorr",
         "NoUTurnSampler",
     ]
 
-    from . import step_size, metric
+    from . import step_size, metric, autocorr
     from .nuts import NoUTurnSampler
