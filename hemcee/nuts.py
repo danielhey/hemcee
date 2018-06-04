@@ -8,6 +8,9 @@ import logging
 from collections import namedtuple
 
 import numpy as np
+import matplotlib.pyplot as plt
+from IPython import display
+import time
 
 from tqdm import tqdm
 
@@ -177,7 +180,7 @@ def step_nuts(log_prob_fn, grad_log_prob_fn, metric, q, log_prob, epsilon,
             break
 
     accept_prob = sum_metro_prob / n_leapfrog
-    return z_sample.q, log_prob_fn(q), float(accept_prob)
+    return z_sample.q, log_prob_fn(q), float(accept_prob), z_sample.p
 
 
 class NoUTurnSampler(object):
@@ -234,7 +237,7 @@ class NoUTurnSampler(object):
                 step = self.step_size.sample_step_size(random=random)
 
                 # Run one step of NUTS
-                q, log_prob, accept = step_nuts(
+                q, log_prob, accept, p = step_nuts(
                     self.log_prob_fn, self.grad_log_prob_fn, self.metric,
                     q, log_prob, step, self.max_depth, self.max_delta_h,
                     random)
@@ -258,7 +261,7 @@ class NoUTurnSampler(object):
                     top_pbar.update(1)
 
                 # Yield the current state
-                yield q, log_prob
+                yield q, log_prob, p
 
         # If tuning, finalize the step size and metric. If the metric is
         # updated, the step size should be restarted so that it can be learned
@@ -272,7 +275,15 @@ class NoUTurnSampler(object):
     def run_warmup(self, initial_q, n_warmup, initial_log_prob=None,
                    tune_step_size=True, tune_metric=True,
                    initial_buffer=100, final_buffer=100, window=25,
-                   random=None):
+                   random=None, plot=False, update_interval=50):
+
+        if plot:
+            fig_warmup, ax_warmup = plt.subplots(2, len(initial_q))
+            ax_warmup = list(map(list, zip(*ax_warmup)))   # I disgust myself
+
+            chain_q = np.empty((n_warmup, len(initial_q)), dtype=float)
+            chain_p = np.empty((n_warmup, len(initial_q)), dtype=float)
+        
         # Compute the schedule for the warm up
         if tune_metric:
             # First, how many inner steps do we get?
@@ -305,7 +316,7 @@ class NoUTurnSampler(object):
         # pbar.set_description("warm up: ")
         pbar = None
         if initial_buffer > 0:
-            for q, log_prob in self.sample(q, initial_buffer,
+            for q, log_prob, p in self.sample(q, initial_buffer,
                                            initial_log_prob=log_prob,
                                            tune_step_size=tune_step_size,
                                            random=random,
@@ -315,7 +326,7 @@ class NoUTurnSampler(object):
 
         # For each window in the schedule tune the metric
         for n, w in enumerate(windows):
-            for q, log_prob in self.sample(q, w,
+            for q, log_prob, p in self.sample(q, w,
                                            initial_log_prob=log_prob,
                                            tune_step_size=tune_step_size,
                                            tune_metric=tune_metric,
@@ -327,7 +338,7 @@ class NoUTurnSampler(object):
 
         # Using the final metric, tune the step size
         if final_buffer > 0:
-            for q, log_prob in self.sample(q, final_buffer,
+            for q, log_prob, p in self.sample(q, final_buffer,
                                            initial_log_prob=log_prob,
                                            tune_step_size=tune_step_size,
                                            random=random,
@@ -337,13 +348,43 @@ class NoUTurnSampler(object):
 
         return q, log_prob
 
-    def run_mcmc(self, initial_q, n_mcmc, initial_log_prob=None,
-                 random=None):
-        chain = np.empty((n_mcmc, len(initial_q)), dtype=float)
+    def run_mcmc(self, initial_q, n_mcmc, tune=False, initial_log_prob=None,
+                 random=None, plot=True, var_names=None, update_interval=20):
+                
+        chain_q = np.empty((n_mcmc, len(initial_q)), dtype=float)
         log_prob_chain = np.empty(n_mcmc, dtype=float)
-        for n, (q, lp) in enumerate(self.sample(
-                initial_q, n_mcmc, initial_log_prob=initial_log_prob,
+
+        if plot:
+            chain_p = np.empty((n_mcmc, len(initial_q)), dtype=float)
+            fig, ax = plt.subplots(2, len(initial_q))
+            #fig, ax = plt.subplots(1, len(initial_q), squeeze=False)
+            if (len(initial_q) > 1):
+                ax = list(map(list, zip(*ax)))   # I disgust myself
+            else:
+                ax = [ax]
+            for n, (q, lp, p) in enumerate(self.sample(
+            initial_q, n_mcmc, tune=tune, initial_log_prob=initial_log_prob,
+            random=random)):
+                chain_q[n] = q
+                chain_p[n] = p
+                log_prob_chain[n] = lp
+                if n % update_interval == 0:
+                    for j, axis in enumerate(ax):
+                        # use axis.set_ydata later
+                        axis[0].clear()
+                        axis[1].clear()
+                        axis[1].plot(chain_q[:n,j], chain_p[:n,j])
+                        axis[1].plot(chain_q[n-1,j], chain_p[n-1,j], 'o')
+                        axis[0].plot(chain_q[:n,j])
+                    for axis, name in zip(ax, var_names):
+                        axis[0].set_title(name)
+                    plt.pause(0.02)
+                    plt.draw()
+            return chain_q, log_prob_chain
+        else:
+            for n, (q, lp, p) in enumerate(self.sample(
+                initial_q, n_mcmc, tune=tune, initial_log_prob=initial_log_prob,
                 random=random)):
-            chain[n] = q
-            log_prob_chain[n] = lp
-        return chain, log_prob_chain
+                    chain_q[n] = q
+                    log_prob_chain[n] = lp
+            return chain_q, log_prob_chain
