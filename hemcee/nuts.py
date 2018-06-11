@@ -349,19 +349,15 @@ class NoUTurnSampler(object):
         return q, log_prob
 
     def run_mcmc(self, initial_q, n_mcmc, tune=False, initial_log_prob=None,
-                 random=None, plot=True, var_names=None, update_interval=20):
+                 random=None, plot=False, var_names=None, update_interval=100):
                 
         chain_q = np.empty((n_mcmc, len(initial_q)), dtype=float)
         log_prob_chain = np.empty(n_mcmc, dtype=float)
 
         if plot:
             chain_p = np.empty((n_mcmc, len(initial_q)), dtype=float)
-            fig, ax = plt.subplots(2, len(initial_q))
-            #fig, ax = plt.subplots(1, len(initial_q), squeeze=False)
-            if (len(initial_q) > 1):
-                ax = list(map(list, zip(*ax)))   # I disgust myself
-            else:
-                ax = [ax]
+            fig, ax = self._init_subplots(len(initial_q), 2, var_names)
+
             for n, (q, lp, p) in enumerate(self.sample(
             initial_q, n_mcmc, tune=tune, initial_log_prob=initial_log_prob,
             random=random)):
@@ -376,8 +372,6 @@ class NoUTurnSampler(object):
                         axis[1].plot(chain_q[:n,j], chain_p[:n,j])
                         axis[1].plot(chain_q[n-1,j], chain_p[n-1,j], 'o')
                         axis[0].plot(chain_q[:n,j])
-                    for axis, name in zip(ax, var_names):
-                        axis[0].set_title(name)
                     plt.pause(0.02)
                     plt.draw()
             return chain_q, log_prob_chain
@@ -388,3 +382,10 @@ class NoUTurnSampler(object):
                     chain_q[n] = q
                     log_prob_chain[n] = lp
             return chain_q, log_prob_chain
+
+    def _init_subplots(self, rows, columns, title=None):
+        fig, ax = plt.subplots(rows, columns, squeeze=False)
+        if title is not None:
+            for axis, name in zip(ax, title):
+                            axis[0].set_title(name)
+        return fig, ax
